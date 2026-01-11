@@ -1,8 +1,6 @@
-# main.py
-
 import os
-import json
-from app.persona_engine import PersonaIntelligenceEngine
+from app.optimize import FastPDFProcessor, ResourceMonitor
+from app.output_generator import OutputGenerator
 
 INPUT_DIRECTORY = "/app/input"
 OUTPUT_DIRECTORY = "/app/output"
@@ -10,36 +8,40 @@ OUTPUT_DIRECTORY = "/app/output"
 def main():
     os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
     
-    input_file_path = os.path.join(INPUT_DIRECTORY, "challenge1b_input.json")
-    
-    if not os.path.exists(input_file_path):
-        print(f"Error: Input file not found at '{input_file_path}'")
+    try:
+        pdf_files = [f for f in os.listdir(INPUT_DIRECTORY) if f.lower().endswith(".pdf")]
+    except FileNotFoundError:
+        print(f"Error: Input directory not found at '{INPUT_DIRECTORY}'.")
         return
 
-    with open(input_file_path, 'r') as f:
-        spec = json.load(f)
-    
-    persona = spec.get("persona", {}).get("role", "")
-    job = spec.get("job_to_be_done", {}).get("task", "")
-    
-    pdf_filenames = [doc.get("filename") for doc in spec.get("documents", []) if doc.get("filename")]
-    pdf_files = [os.path.join(INPUT_DIRECTORY, fname) for fname in pdf_filenames]
+    print(f"Found {len(pdf_files)} PDF(s) to process.")
 
-    valid_pdfs = [pdf for pdf in pdf_files if os.path.exists(pdf)]
-    if len(valid_pdfs) != len(pdf_files):
-        missing = set(pdf_files) - set(valid_pdfs)
-        print(f"Warning: The following PDF documents were not found: {missing}")
+    monitor = ResourceMonitor()
+    monitor.start()
 
-    print(f"Starting Challenge 1B Analysis for Persona: '{persona}'")
+    processor = FastPDFProcessor()
+    generator = OutputGenerator()
+    total_pages = 0
 
-    engine = PersonaIntelligenceEngine()
-    result = engine.analyze_document_collection(valid_pdfs, persona, job)
-
-    output_path = os.path.join(OUTPUT_DIRECTORY, "challenge1b_output.json")
-    with open(output_path, 'w') as f:
-        json.dump(result, f, indent=2)
+    for file_name in pdf_files:
+        input_file = os.path.join(INPUT_DIRECTORY, file_name)
+        output_file = os.path.join(OUTPUT_DIRECTORY, f"{os.path.splitext(file_name)[0]}.json")
         
-    print(f"Analysis complete. Output saved to '{output_path}'")
+        try:
+            result_data = processor.process_pdf(input_file)
+            generator.save_to_file(result_data, output_file)
+            total_pages += len(result_data.get("outline", []))
+        except Exception as e:
+            print(f"FATAL ERROR processing {file_name}: {e}")
+
+    monitor.stop()
+    report = monitor.get_report(len(pdf_files), total_pages)
+    
+    print("\n--- PERFORMANCE REPORT ---")
+    print(f"  Files Processed: {report['files_processed']}")
+    print(f"  Total Time: {report['total_time_seconds']}s")
+    print(f"  Peak Memory Usage: {report['peak_memory_mb']} MB")
+    print("--------------------------\n")
 
 if __name__ == "__main__":
     main()
